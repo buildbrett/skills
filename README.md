@@ -1,6 +1,6 @@
 # skills
 
-A small collection of Claude Code skills, with a one-line installer.
+Agent skills I find useful as a product manager and for software engineering, shared in case they're useful to you. Each skill lives in its own folder under `skills/` with a `SKILL.md`.
 
 ## Install
 
@@ -23,18 +23,8 @@ curl -fsSL https://raw.githubusercontent.com/buildbrett/skills/main/install.sh |
 SKILLS_SRC=. bash install.sh
 ```
 
-## Skills
+## Reference
 
-- `link-memory` — symlink a project's Claude Code memory directory into the project as a `Claude memory` folder, so the memories show up in Obsidian or any file browser. Creates the memory dir empty if the project has none yet.
+### Utilities
 
-## Layout
-
-```
-skills/
-  <skill-name>/
-    SKILL.md         # the skill (name + description frontmatter, instructions)
-    ...              # any helper scripts the skill runs
-install.sh           # the checklist installer
-```
-
-The installer finds every `SKILL.md` under `skills/` and copies its folder into `~/.claude/skills/`.
+- **[link-memory](./skills/link-memory/SKILL.md)** — symlinks a project's Claude Code memory directory into the project as a `Claude memory` folder, so you can read it in Obsidian or any file browser. Makes the agent's memory explicit and easy to revisit, so you can update or purge stale entries that have turned into bad habits. Creates the memory dir empty if the project has none yet. User-invoked.
