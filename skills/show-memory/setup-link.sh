@@ -26,9 +26,10 @@ if [ ! -d "$DIR" ]; then echo "Project dir does not exist: $DIR" >&2; exit 1; fi
 DIR="$(cd "$DIR" && pwd)"   # normalize to absolute
 
 # Claude Code stores per-project memory at ~/.claude/projects/<key>/memory,
-# where <key> is the absolute project path with '/', spaces and '~' turned to '-'.
+# where <key> is the absolute project path with non-word characters ('/', spaces,
+# '~', '.' and similar) turned to '-'. For an unusual path, pass --target instead.
 if [ -z "$TARGET" ]; then
-  KEY="$(printf '%s' "$DIR" | sed 's#[/ ~]#-#g')"
+  KEY="$(printf '%s' "$DIR" | sed 's#[/ .~]#-#g')"
   TARGET="$HOME/.claude/projects/$KEY/memory"
 fi
 

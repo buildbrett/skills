@@ -45,7 +45,7 @@ fi
 
 # --- Get the source tree -----------------------------------------------------
 TMP=""; HID_CURSOR=0
-cleanup() { [ "$HID_CURSOR" = "1" ] && printf '\033[?25h'; [ -n "$TMP" ] && [ -d "$TMP" ] && rm -rf "$TMP"; }
+cleanup() { [ "$HID_CURSOR" = "1" ] && printf '\033[?25h'; [ -n "$TMP" ] && [ -d "$TMP" ] && rm -rf "$TMP"; return 0; }
 trap cleanup EXIT
 
 if [ -n "${SKILLS_SRC:-}" ]; then
@@ -117,15 +117,17 @@ if [ "$MODE" = "all" ]; then
 fi
 
 if [ "$MODE" = "skills" ]; then
+  any=0
   for want in "${WANT[@]}"; do
     found=0
     for i in "${!names[@]}"; do
       if [ "${names[$i]}" = "$want" ] || [ "$(basename "${paths[$i]}")" = "$want" ]; then
-        sel[$i]=1; found=1
+        sel[$i]=1; found=1; any=1
       fi
     done
     [ "$found" = "1" ] || echo "No skill named '$want' in $REPO" >&2
   done
+  [ "$any" = "1" ] || { echo "None of the requested skills matched; nothing installed." >&2; exit 1; }
   install_selected
   exit 0
 fi

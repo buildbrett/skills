@@ -22,7 +22,7 @@ From the project directory whose memory you want to see. Running it in `/Users/b
    bash ~/.claude/skills/show-memory/setup-link.sh --dir /path/to/project --name "claude memory"
    ```
 2. The script:
-   - Computes the project's memory dir from the directory path (the same `/`, space and `~` to `-` encoding Claude Code uses), or use `--target` to point at an explicit memory dir.
+   - Computes the project's memory dir from the directory path (mapping `/`, spaces, `~`, `.` and similar to `-`, as Claude Code does), or use `--target` to point at an explicit memory dir.
    - Creates that memory dir empty if it does not exist yet, so the folder is present but blank.
    - Creates the `claude memory` symlink. It is idempotent (re-running is a no-op) and will not overwrite a real file or a symlink pointing somewhere else.
 3. Report what was linked and how many memory files are present.
