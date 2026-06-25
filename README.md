@@ -23,8 +23,18 @@ curl -fsSL https://raw.githubusercontent.com/buildbrett/skills/main/install.sh |
 SKILLS_SRC=. bash install.sh
 ```
 
+## Install with a coding agent
+
+If you use Claude Code or another agent, tell it to install a skill and it can do the whole thing without the checklist:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/buildbrett/skills/main/install.sh | bash -s -- --skill show-memory
+```
+
+Claude Code watches `~/.claude/skills/` and picks up a newly installed skill in the same session, so the agent can install it and then run it for you, no restart needed. The one exception: if `~/.claude/skills/` did not exist when the session started, that new directory needs a restart before it is watched. A good agent flow is: run the install command above, then offer to run the skill in the current project.
+
 ## Reference
 
 ### Utilities
 
-- **[link-memory](./skills/link-memory/SKILL.md)** — symlinks a project's Claude Code memory directory into the project as a `Claude memory` folder, so you can read it in Obsidian or any file browser. Makes the agent's memory explicit and easy to revisit, so you can update or purge stale entries that have turned into bad habits. Creates the memory dir empty if the project has none yet. User-invoked.
+- **[show-memory](./skills/show-memory/SKILL.md)** — shows a project's Claude Code memory in Obsidian or any file browser by linking it into the project as a `claude memory` folder. Makes the agent's memory explicit and easy to revisit, so you can update or purge stale entries that have turned into bad habits. Creates the memory dir empty if the project has none yet. User-invoked.

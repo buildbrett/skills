@@ -3,7 +3,7 @@
 # Obsidian (or any editor) can browse. Idempotent and non-clobbering.
 set -euo pipefail
 
-LINK_NAME="Claude memory"
+LINK_NAME="claude memory"
 TARGET=""
 DIR="$PWD"
 
@@ -16,7 +16,7 @@ while [ $# -gt 0 ]; do
       echo "Usage: setup-link.sh [--dir PROJECT_DIR] [--target MEMORY_DIR] [--name LINK_NAME]"
       echo "  --dir     Project directory to link into (default: current dir)"
       echo "  --target  Memory dir to point at (default: computed from --dir)"
-      echo "  --name    Name of the folder created in the project (default: 'Claude memory')"
+      echo "  --name    Name of the folder created in the project (default: 'claude memory')"
       exit 0;;
     *) echo "Unknown arg: $1" >&2; exit 2;;
   esac

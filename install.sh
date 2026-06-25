@@ -7,6 +7,7 @@
 #
 # Flags (pass with: curl ... | bash -s -- --all):
 #   --all            install every skill, no prompt
+#   --skill NAME     install just this skill, no prompt (repeatable). Good for agents.
 #   --list           print the skill names and exit
 #   -h, --help       show this help
 # Env overrides:
@@ -20,14 +21,18 @@ REPO="${SKILLS_REPO:-buildbrett/skills}"
 BRANCH="${SKILLS_BRANCH:-main}"
 DEST="${SKILLS_DEST:-$HOME/.claude/skills}"
 MODE="interactive"
+WANT=()
 
-for arg in "$@"; do
-  case "$arg" in
-    --all)  MODE="all" ;;
-    --list) MODE="list" ;;
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --all)     MODE="all" ;;
+    --list)    MODE="list" ;;
+    --skill)   MODE="skills"; WANT+=("$2"); shift ;;
+    --skill=*) MODE="skills"; WANT+=("${1#*=}") ;;
     -h|--help) MODE="help" ;;
-    *) echo "Unknown argument: $arg" >&2; exit 2 ;;
+    *) echo "Unknown argument: $1" >&2; exit 2 ;;
   esac
+  shift
 done
 
 c_reset=$'\033[0m'; c_dim=$'\033[2m'; c_bold=$'\033[1m'; c_rev=$'\033[7m'; c_grn=$'\033[32m'
@@ -101,12 +106,26 @@ install_selected() {
     echo "Nothing selected. No changes made."
   else
     echo "$count skill(s) installed to $DEST"
-    echo "Restart Claude Code to load them."
+    echo "Claude Code picks up new skills automatically in the current session. If one does not appear, restart Claude Code."
   fi
 }
 
 if [ "$MODE" = "all" ]; then
   for ((i=0;i<n;i++)); do sel[$i]=1; done
+  install_selected
+  exit 0
+fi
+
+if [ "$MODE" = "skills" ]; then
+  for want in "${WANT[@]}"; do
+    found=0
+    for i in "${!names[@]}"; do
+      if [ "${names[$i]}" = "$want" ] || [ "$(basename "${paths[$i]}")" = "$want" ]; then
+        sel[$i]=1; found=1
+      fi
+    done
+    [ "$found" = "1" ] || echo "No skill named '$want' in $REPO" >&2
+  done
   install_selected
   exit 0
 fi
