@@ -25,6 +25,7 @@ From the project directory whose memory you want to see. Running it in `/Users/b
    - Computes the project's memory dir from the directory path (mapping `/`, spaces, `~`, `.` and similar to `-`, as Claude Code does), or use `--target` to point at an explicit memory dir.
    - Creates that memory dir empty if it does not exist yet, so the folder is present but blank.
    - Creates the `claude memory` symlink. It is idempotent (re-running is a no-op) and will not overwrite a real file or a symlink pointing somewhere else.
+   - If the project is a git repo, adds the linked folder to that directory's `.gitignore`, so git does not track the symlink and search tools that honor `.gitignore` (Grep, Glob, the `@` file picker) skip it. Pass `--no-gitignore` to leave `.gitignore` alone. Non-git projects are untouched.
 3. Report what was linked and how many memory files are present.
 
 If the script reports a conflicting name, either remove the old item or re-run with `--name` to pick a different folder name.
