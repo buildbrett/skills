@@ -1,6 +1,7 @@
 ---
 name: push-to-google-docs
-description: Push a local markdown file to Google Docs with tables, images, and mermaid diagrams. Renders mermaid locally with Merman (no browser), packs everything into a single .docx with embedded image bytes, and uploads it once for Google to convert. Uses whatever Google access the project already has (gws CLI, a Drive/Docs MCP, or OAuth). The local file is the source of truth.
+description: Push a local markdown file to Google Docs with tables, images, and mermaid diagrams. Renders mermaid locally with Merman (no browser), packs everything into a single .docx with embedded image bytes, and uploads it once for Google to convert. Uses whatever Google access the project already has (gws CLI, a Drive/Docs MCP, or OAuth). The local file is the source of truth. On first use, run `/push-to-google-docs --setup` to install the dependencies (pandoc, Merman/Rust, a Google transport); an installing agent should offer this before the first push.
+user-invocable: true
 ---
 
 # Push Markdown to Google Docs
@@ -11,6 +12,8 @@ Convert a local markdown file to a Google Doc with tables, formatting, and image
 
 When the user asks to push, publish, or create a Google Doc from a local markdown file.
 
+**First run:** if invoked as `/push-to-google-docs --setup`, or if this is the first use and the dependencies below are not installed, run the Setup section first so the first push does not fail partway. An agent that installs this skill should offer to run `--setup` before the first push.
+
 ## Why .docx (not HTML)
 
 Google converts an uploaded `.docx` to a Google Doc with images, tables, headings, code, and internal links intact. Because a `.docx` is a zip with the image bytes embedded inside it, the diagrams travel *in the file* — there is no need to upload each image to Drive, make it public, reference it by URL, and delete it later (the old HTML-import path required all of that, and left images briefly world-readable). One upload, one conversion.
@@ -18,11 +21,22 @@ Google converts an uploaded `.docx` to a Google Doc with images, tables, heading
 ## Prerequisites
 
 - **pandoc** — markdown → docx. Check `command -v pandoc`; install if missing.
-- **merman-cli** — local, browserless mermaid renderer (only needed if the doc has mermaid diagrams). Install with `cargo install merman-cli --locked`. If `cargo install` complains about the rustc version, pin a compatible release, e.g. `cargo install merman-cli --version 0.7.0-alpha.1 --locked`. A prebuilt binary may also be available from the Merman releases (github.com/Latias94/merman). No browser, Node, or Docker required.
+- **merman-cli** — local, browserless mermaid renderer (only needed if the doc has mermaid diagrams). Needs **Rust/cargo**; install with `cargo install merman-cli --locked`. If `cargo install` complains about the rustc version, pin a compatible release, e.g. `cargo install merman-cli --version 0.7.0-alpha.1 --locked`. A prebuilt binary may also be available from the Merman releases (github.com/Latias94/merman). No browser, Node, or Docker required.
 - **python3** — small preprocessing scripts.
 - **A Google transport** — gws CLI, a Drive/Docs MCP, or OAuth credentials (see Connecting to Google). Only one operation is needed: upload a file and convert it to a Google Doc.
 
 Merman is an independent, parity-focused reimplementation of Mermaid and is currently alpha. It renders common diagrams (sequence, flowchart) faithfully, but may not cover every diagram type. See the fallback in Step 2.
+
+## Setup (`--setup`)
+
+Run this before the first real use, or whenever invoked as `/push-to-google-docs --setup`. Check each dependency, offer to install anything missing (with the user's OK), and confirm the Google transport is authenticated. Bound every install/check command with the `run()` helper (Timeouts and retries).
+
+1. **pandoc** — `command -v pandoc`. If missing, install it (macOS: `brew install pandoc`; Debian/Ubuntu: `apt-get install pandoc`; Windows: `winget install --id JohnMacFarlane.Pandoc`).
+2. **Merman** (only if diagrams are expected) — `command -v merman-cli`. If missing: it needs **Rust/cargo**, so check `command -v cargo` first. With cargo present, `cargo install merman-cli --locked` (note the one-time ~2-3 min compile; if it fails on the rustc version, pin a compatible release, e.g. `--version 0.7.0-alpha.1 --locked`). If cargo is missing, either install Rust (`curl https://sh.rustup.rs -sSf | sh`) or point the user at a prebuilt Merman binary from github.com/Latias94/merman.
+3. **python3** — `command -v python3` (runs the pipeline scripts).
+4. **A Google transport** — confirm one of: gws (`command -v gws`, then `gws auth status` shows a signed-in user with the Drive scope), a connected Drive/Docs MCP, or OAuth credentials on disk. If none, walk the user through setting one up.
+
+Finish by reporting a short checklist of what is present and what was installed, then say the skill is ready.
 
 ## Connecting to Google
 
@@ -75,11 +89,13 @@ Local images (`![alt](path)` with a local path) need no special handling: pandoc
 
 ### Step 2: Render mermaid with Merman (local, no browser)
 
-For each extracted block, render to PNG with `merman-cli`:
+For each extracted block, render to PNG with `merman-cli`, through the bounded `run()` helper (see Timeouts and retries):
 
-```bash
-merman-cli -i mermaid_N.mmd -o mermaid_N.png -t neutral -b white
+```python
+run(["merman-cli", "-i", "mermaid_N.mmd", "-o", "mermaid_N.png", "-t", "default", "-b", "white"], timeout=30)
 ```
+
+Use the `default` theme (mermaid's standard colored palette), not `neutral` (which is grayscale). A diagram that specifies its own colors overrides this: an inline `%%{init: {"theme": "..."}}%%` directive or explicit `style`/`classDef` fills take precedence, so authored colors are preserved and only unstyled diagrams fall back to `default`.
 
 Then replace each `@@MERMAID_N@@` token in `preprocessed.md` with a local image reference, sized to fit the page (a Google Doc content area is ~6.5in wide):
 
@@ -87,21 +103,49 @@ Then replace each `@@MERMAID_N@@` token in `preprocessed.md` with a local image 
 ![Diagram N](mermaid_N.png){width=6in}
 ```
 
-**If merman-cli fails on a block** (it is alpha and may not support every diagram type), do not silently drop or degrade it. Stop and ask the user, with `AskUserQuestion`, whether to render that diagram with **kroki** instead. The prompt must state plainly that **kroki is an external web service**: choosing it sends the diagram's source over the network to kroki.io, which renders and returns the image — a confidentiality concern for sensitive diagrams. Only on an explicit yes, render via kroki:
+**If merman-cli fails on a block** (it is alpha and may not support every diagram type), do not silently drop or degrade it. Stop and ask the user, with `AskUserQuestion`, whether to render that diagram with **kroki** instead. The prompt must state plainly that **kroki is an external web service**: choosing it sends the diagram's source over the network to kroki.io, which renders and returns the image — a confidentiality concern for sensitive diagrams. Only on an explicit yes, render via kroki (bounded):
 
-```bash
-curl -s -X POST https://kroki.io/mermaid/png --data-binary @mermaid_N.mmd -o mermaid_N.png
+```python
+run(["curl", "-s", "-X", "POST", "https://kroki.io/mermaid/png",
+     "--data-binary", "@mermaid_N.mmd", "-o", "mermaid_N.png"], timeout=30)
 ```
 
 If the user declines, ask whether to leave that diagram as a fenced code block in the doc or abort.
 
-### Step 3: Convert to .docx with pandoc
+### Step 3: Build the style reference and convert to .docx
 
-```bash
-pandoc preprocessed.md -f gfm -t docx -o output.docx
+Pandoc's default reference document sets a theme font (recent pandoc defaults to Aptos, which Google has no match for and substitutes with "Play") and gives headings a themed color. To get plain Arial and all-black text and headings, generate a patched reference once and convert against it. The patch is version-robust — it rewrites whatever the local pandoc happens to default to, rather than assuming specific font names or color values:
+
+```python
+import zipfile, re, subprocess
+
+default = subprocess.run(["pandoc", "--print-default-data-file", "reference.docx"],
+                         capture_output=True, timeout=30).stdout
+open("ref_default.docx", "wb").write(default)
+src = zipfile.ZipFile("ref_default.docx"); items = {n: src.read(n) for n in src.namelist()}; src.close()
+
+# Theme major/minor fonts -> Arial (whatever they currently are).
+th = items["word/theme/theme1.xml"].decode()
+th = re.sub(r'(<a:majorFont>\s*<a:latin typeface=")[^"]*', r'\1Arial', th)
+th = re.sub(r'(<a:minorFont>\s*<a:latin typeface=")[^"]*', r'\1Arial', th)
+items["word/theme/theme1.xml"] = th.encode()
+
+# Heading/Title/Subtitle color -> black, stripping any themeColor (which would override an explicit value).
+st = items["word/styles.xml"].decode()
+st = re.sub(r'<w:style\b[^>]*w:styleId="(?:Heading\d|Title|Subtitle)"[^>]*>.*?</w:style>',
+            lambda m: re.sub(r'<w:color\b[^>]*/>', '<w:color w:val="000000"/>', m.group(0)),
+            st, flags=re.DOTALL)
+# Force black body text by default.
+st = re.sub(r'(<w:rPrDefault>\s*<w:rPr>)', r'\1<w:color w:val="000000"/>', st, count=1)
+items["word/styles.xml"] = st.encode()
+
+with zipfile.ZipFile("reference.docx", "w", zipfile.ZIP_DEFLATED) as z:
+    for n, d in items.items(): z.writestr(n, d)
+
+run(["pandoc", "preprocessed.md", "-f", "gfm", "-t", "docx", "--reference-doc=reference.docx", "-o", "output.docx"], timeout=60)
 ```
 
-Pandoc embeds the mermaid PNGs (and any local/remote images) into the `.docx`, and renders tables, headings, code blocks, block quotes, and the internal anchor links natively. No HTML post-processing is needed. For custom fonts/spacing, pass `--reference-doc=reference.docx`; the default styling is clean and usually fine.
+Pandoc embeds the mermaid PNGs (and any local/remote images) into the `.docx`, and renders tables, headings, code blocks, block quotes, and internal anchor links natively. No HTML post-processing is needed. Code spans stay monospace (Consolas/Courier New) and internal links keep the standard link color; only body and heading text are forced to black. To also black out link text, blacken the `Hyperlink` character style the same way.
 
 ### Step 4: Upload the .docx and convert to a Google Doc
 
@@ -120,33 +164,54 @@ Done:
 
 Before creating a new doc, ask where it should go with `AskUserQuestion`: Drive root by default, a folder the user names, or a folder ID/URL pasted via "Other". If the user named a destination in their request, use it. Resolve a folder name to an ID with the transport. Before creating, check the target folder for a doc with the same title and offer update vs new.
 
+## Timeouts and retries
+
+Every network call (the Drive upload, kroki, any MCP/REST call) must be bounded — never run one unbounded. A single gws upload once hung for over two minutes; a bounded call with one retry recovers in seconds. macOS has no `timeout` command, so wrap calls in Python's `subprocess` timeout rather than shell `timeout`. Use this helper for all transport and external calls in this skill:
+
+```python
+import subprocess, time
+
+def run(cmd, timeout=60, retries=1):
+    """Run cmd with a hard timeout; retry once on timeout or failure. Returns stdout."""
+    last = ""
+    for attempt in range(retries + 1):
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            if r.returncode == 0:
+                return r.stdout
+            last = "exit %d: %s" % (r.returncode, (r.stderr or "")[:300])
+        except subprocess.TimeoutExpired:
+            last = "timed out after %ds" % timeout
+        if attempt < retries:
+            time.sleep(2)
+    raise RuntimeError("command failed (%s): %s" % (last, " ".join(map(str, cmd[:4]))))
+```
+
+Render steps are local but still bound them defensively: `merman-cli` with `timeout=30`, `pandoc` with `timeout=60`, kroki with `timeout=30`. The Drive upload uses the default `timeout=60`. If a call exhausts its retry, stop and report the failure — do not hang or silently skip.
+
 ## Transport recipes
 
 ### gws recipe
 
-Run from inside `./.gdocs-tmp/` so the relative path sits within the current directory (gws rejects `--upload` paths outside cwd). gws prints a `Using keyring backend` line to stderr, so read JSON from stdout only (`2>/dev/null`). The docx MIME type is `application/vnd.openxmlformats-officedocument.wordprocessingml.document`.
+Drive gws through the `run()` helper above so every call is bounded. Run from inside `./.gdocs-tmp/` so the relative path sits within the current directory (gws rejects `--upload` paths outside cwd). gws prints a `Using keyring backend` line to stderr; with `capture_output` that goes to `r.stderr`, so stdout stays clean JSON. The docx MIME type is `application/vnd.openxmlformats-officedocument.wordprocessingml.document`.
 
-Create a Doc from the docx (omit `parents` for Drive root):
-```bash
-DOC_ID=$(gws drive files create \
-  --json '{"name":"TITLE","mimeType":"application/vnd.google-apps.document","parents":["FOLDER_ID"]}' \
-  --upload output.docx \
-  --upload-content-type application/vnd.openxmlformats-officedocument.wordprocessingml.document \
-  --format json 2>/dev/null | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
-```
+```python
+import json
+GWS = "gws"; DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
-Update an existing Doc's content:
-```bash
-gws drive files update --params '{"fileId":"DOC_ID"}' \
-  --upload output.docx \
-  --upload-content-type application/vnd.openxmlformats-officedocument.wordprocessingml.document \
-  -o gws_resp.json --format json 2>/dev/null
-```
+# Create a Doc from the docx (omit parents for Drive root)
+meta = {"name": "TITLE", "mimeType": "application/vnd.google-apps.document", "parents": ["FOLDER_ID"]}
+doc_id = json.loads(run([GWS, "drive", "files", "create", "--json", json.dumps(meta),
+    "--upload", "output.docx", "--upload-content-type", DOCX, "--format", "json"]))["id"]
 
-Find a doc by title in a folder (dedupe):
-```bash
-gws drive files list --format json \
-  --params '{"q":"FOLDER_ID in parents and name = \"TITLE\" and trashed = false","fields":"files(id,name)"}'
+# Update an existing Doc's content
+run([GWS, "drive", "files", "update", "--params", '{"fileId":"DOC_ID"}',
+     "--upload", "output.docx", "--upload-content-type", DOCX, "-o", "gws_resp.json", "--format", "json"])
+
+# Find a doc by title in a folder (dedupe)
+q = 'FOLDER_ID in parents and name = "TITLE" and trashed = false'
+hits = json.loads(run([GWS, "drive", "files", "list", "--format", "json",
+    "--params", json.dumps({"q": q, "fields": "files(id,name)"})]))
 ```
 
 ### Direct Drive REST fallback (OAuth)
