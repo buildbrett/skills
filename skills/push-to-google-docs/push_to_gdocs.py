@@ -304,10 +304,13 @@ def render_mermaid(md, count, workdir, allow_kroki):
                  "--data-binary", "@" + mmd, "-o", png], timeout=30)
             if not os.path.exists(png) or os.path.getsize(png) == 0:
                 die(6, "kroki render failed for diagram %d." % i)
-        # Absolute path so pandoc finds the PNG regardless of its cwd; the
-        # width attribute needs the gfm `attributes` extension (see convert_to_docx).
+        # Reference the PNG by bare filename and let pandoc find it via
+        # --resource-path (set to the workdir in convert_to_docx). An absolute
+        # path would break here whenever the workdir contains spaces, since
+        # gfm can't parse spaces in an unbracketed image URL. The width attribute
+        # needs the gfm `attributes` extension (also set in convert_to_docx).
         md = md.replace('@@MERMAID_%d@@' % i,
-                        '![Diagram %d](%s){width=6in}' % (i, os.path.abspath(png)))
+                        '![Diagram %d](%s){width=6in}' % (i, os.path.basename(png)))
     return md
 
 
@@ -444,7 +447,10 @@ def bold_table_headers(doc):
 def convert_to_docx(pre_md, ref, out_docx):
     # gfm+attributes so the {width=6in} on rendered mermaid images is parsed as an
     # image attribute rather than left as literal text after the picture.
+    # --resource-path points at the workdir so the bare-filename mermaid PNGs
+    # resolve regardless of pandoc's cwd or spaces in the path.
     run(["pandoc", pre_md, "-f", "gfm+attributes", "-t", "docx",
+         "--resource-path=" + os.path.dirname(os.path.abspath(pre_md)),
          "--reference-doc=" + ref, "-o", out_docx], timeout=60)
     # Strip per-heading bookmark anchors that Google Docs would render as noise.
     zin = zipfile.ZipFile(out_docx)
