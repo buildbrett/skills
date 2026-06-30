@@ -12,6 +12,8 @@ Convert a local markdown file to a Google Doc with tables, formatting, and image
 
 When the user asks to push, publish, or create a Google Doc from a local markdown file.
 
+**Always convert the file fresh from disk.** Re-read the current bytes of the source file at the moment of conversion (Step 1 copies it in) — never build the Doc from memory, a summary, or content loaded earlier in the conversation. The user may have edited the file since, and the local file is the source of truth. If you already have an older copy in context, discard it and read the file again before preprocessing.
+
 **First run:** if invoked as `/push-to-google-docs --setup`, or if this is the first use and the dependencies below are not installed, run the Setup section first so the first push does not fail partway. An agent that installs this skill should offer to run `--setup` before the first push.
 
 ## Why .docx (not HTML)
@@ -56,24 +58,17 @@ gws sandboxes uploads to the current directory. Work in a temp subdir inside the
 
 ### Step 1: Read and preprocess
 
-Run from `./.gdocs-tmp/` with the source copied in as `source.md`. Handle wiki-links, internal section links, and mermaid extraction.
+Run from `./.gdocs-tmp/` with the source copied in **fresh from disk** as `source.md` (re-read it now; do not reuse an earlier copy). Handle wiki-links and mermaid extraction.
 
 ```python
 import re
 md = open('source.md').read()
 
-def slug(s):  # approximate pandoc gfm auto_identifier
-    s = s.strip().lower(); s = re.sub(r'[^\w\s-]', '', s); return re.sub(r'\s+', '-', s)
-
-# Obsidian internal links -> markdown anchor links (pandoc makes these in-doc bookmarks).
-md = re.sub(r'\[\[#([^\]|]+)\|([^\]]+)\]\]', lambda m: '[%s](#%s)' % (m.group(2).strip(), slug(m.group(1))), md)
-md = re.sub(r'\[\[#([^\]|]+)\]\]',          lambda m: '[%s](#%s)' % (m.group(1).strip(), slug(m.group(1))), md)
-# Cross-file links keep their text; the cross-doc link is dropped.
-md = re.sub(r'\[\[[^#\]|]+#[^\]|]+\|([^\]]+)\]\]', r'\1', md)
-md = re.sub(r'\[\[[^#\]|]+#([^\]|]+)\]\]',          r'\1', md)
-# Plain wiki-links.
-md = re.sub(r'\[\[([^\]|]+)\|([^\]]+)\]\]', r'\2', md)
-md = re.sub(r'\[\[([^\]]+)\]\]',            r'\1', md)
+# Wiki-links -> plain text. Internal section links are not preserved (see note below).
+md = re.sub(r'\[\[[^#\]|]*#[^\]|]+\|([^\]]+)\]\]', r'\1', md)  # [[Doc#Sec|text]] -> text
+md = re.sub(r'\[\[[^#\]|]*#([^\]|]+)\]\]',          r'\1', md)  # [[Doc#Sec]] / [[#Sec]] -> Sec
+md = re.sub(r'\[\[[^\]|]+\|([^\]]+)\]\]',           r'\1', md)  # [[Doc|text]] -> text
+md = re.sub(r'\[\[([^\]]+)\]\]',                    r'\1', md)  # [[Doc]] -> Doc
 
 # Pull each mermaid block to a file; leave a token to fill after rendering.
 blocks = []
@@ -143,9 +138,20 @@ with zipfile.ZipFile("reference.docx", "w", zipfile.ZIP_DEFLATED) as z:
     for n, d in items.items(): z.writestr(n, d)
 
 run(["pandoc", "preprocessed.md", "-f", "gfm", "-t", "docx", "--reference-doc=reference.docx", "-o", "output.docx"], timeout=60)
+
+# Strip heading bookmarks. Pandoc emits a <w:bookmarkStart/> per heading (for internal
+# cross-references); Google Docs renders each as a visible bookmark anchor on the heading,
+# which is noise. This skill does not use internal links, so remove all bookmarks.
+zin = zipfile.ZipFile("output.docx"); parts = {n: zin.read(n) for n in zin.namelist()}; zin.close()
+doc = parts["word/document.xml"].decode()
+doc = re.sub(r'<w:bookmarkStart\b[^>]*/>', '', doc)
+doc = re.sub(r'<w:bookmarkEnd\b[^>]*/>', '', doc)
+parts["word/document.xml"] = doc.encode()
+with zipfile.ZipFile("output.docx", "w", zipfile.ZIP_DEFLATED) as z:
+    for n, d in parts.items(): z.writestr(n, d)
 ```
 
-Pandoc embeds the mermaid PNGs (and any local/remote images) into the `.docx`, and renders tables, headings, code blocks, block quotes, and internal anchor links natively. No HTML post-processing is needed. Code spans stay monospace (Consolas/Courier New) and internal links keep the standard link color; only body and heading text are forced to black. To also black out link text, blacken the `Hyperlink` character style the same way.
+Pandoc embeds the mermaid PNGs (and any local/remote images) into the `.docx`, and renders tables, headings, code blocks, and block quotes natively. No HTML post-processing is needed. Code spans stay monospace (Consolas/Courier New); only body and heading text are forced to black. The bookmark-strip step above drops the per-heading anchors Google Docs would otherwise show.
 
 ### Step 4: Upload the .docx and convert to a Google Doc
 
@@ -257,7 +263,7 @@ def update_doc(doc_id, tok):
 - Single upload: the `.docx` carries the image bytes, so there are no per-image Drive uploads, no public permissions, and no temp-file cleanup on Drive. Deleting `./.gdocs-tmp/` is the only cleanup.
 - Images: pandoc embeds local images by path and downloads + embeds remote `http(s)` images. Size with the `{width=Nin}` attribute; ~6in fits the default page. Mermaid PNGs from merman are referenced the same way.
 - Tables, code, headings, quotes: pandoc's docx writer renders these natively. The old HTML post-processing (code-block tables, margin and whitespace hacks) is gone.
-- Internal links: Obsidian `[[#Section]]` becomes a markdown anchor link in Step 1; pandoc turns it into a working in-document bookmark link. The anchor must match pandoc's heading id — `slug()` approximates pandoc's gfm rule (lowercase, drop punctuation, spaces to hyphens). If a link lands dead, check the slug against the actual heading text.
+- Internal links are not supported. Wiki-links (`[[Doc]]`, `[[Doc|text]]`, `[[#Section]]`) are flattened to their display text in Step 1, and heading bookmarks are stripped in Step 3, so the Doc has no in-document anchors. This is intentional: the bookmarks Google Docs rendered on every heading were more noise than the links were worth.
 - Title as H1: the markdown must carry the title as a single `# H1`; the Doc title-bar name is set by the upload metadata `name`.
 - Merman is alpha: render failures are expected on uncommon diagram types. Handle them per Step 2 (ask before any external fallback); never send a diagram out without explicit consent.
 - Updates replace all content: a full update keeps the doc ID, URL, and sharing. Comments anchored to specific text may lose their anchor.
